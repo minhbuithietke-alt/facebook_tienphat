@@ -16,6 +16,8 @@ export default function handler(req, res) {
 
   // Xử lý nhận tin nhắn POST từ Facebook gửi đến
   if (req.method === 'POST') {
+    const body = req.body;
+    console.log('Webhook received:', JSON.stringify(body, null, 2));
     return res.status(200).send('EVENT_RECEIVED');
   }
 
