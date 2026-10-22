@@ -1,6 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export default function handler(req, res) {
   // Xử lý xác thực GET từ Facebook
   if (req.method === 'GET') {
     const mode = req.query['hub.mode'];
@@ -18,8 +16,6 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
 
   // Xử lý nhận tin nhắn POST từ Facebook gửi đến
   if (req.method === 'POST') {
-    const body = req.body;
-    // Xử lý dữ liệu tin nhắn ở đây
     return res.status(200).send('EVENT_RECEIVED');
   }
 
