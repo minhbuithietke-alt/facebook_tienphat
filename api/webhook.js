@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
-const webhookEventsMemory = [];
+// Bộ nhớ đệm toàn cục trên serverless
+const globalMemory = globalThis.__tienphatEvents || [];
+globalThis.__tienphatEvents = globalMemory;
 
 const DEFAULT_PAGES = {
   page1: {
@@ -21,9 +23,9 @@ const DEFAULT_PAGES = {
   },
   page3: {
     slotId: 'page3',
-    fbPageId: '470417080411338',
-    name: 'Tem Nhãn Gia Lai',
-    specialty: 'Chuyên in ấn tem nhãn giá tốt tại Gia Lai',
+    fbPageId: '108823410003',
+    name: 'Tổng Kho Thùng Carton',
+    specialty: 'Chuyên Thùng carton 3-5 lớp, Hộp ship COD, Bao bì đóng gói',
     accessToken: process.env.FB_PAGE_TOKEN_3 || '',
     webhookSubscribed: true,
   },
@@ -115,14 +117,16 @@ export default async function handler(req, res) {
   const urlObj = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
   const pathname = urlObj.pathname;
 
+  // Trả về danh sách sự kiện cho giao diện Web
   if (req.method === 'GET' && (pathname.endsWith('/events') || urlObj.searchParams.get('action') === 'events')) {
     return res.status(200).json({
       verifyToken: process.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN || 'tienphat_secure_2026',
       connectedPages: Object.values(DEFAULT_PAGES),
-      events: webhookEventsMemory.slice(0, 25),
+      events: globalMemory.slice(0, 25),
     });
   }
 
+  // Xác thực GET Webhook với Facebook
   if (req.method === 'GET') {
     const mode = urlObj.searchParams.get('hub.mode');
     const token = urlObj.searchParams.get('hub.verify_token');
@@ -133,6 +137,7 @@ export default async function handler(req, res) {
     return res.status(403).send('Forbidden');
   }
 
+  // Nhận tin nhắn POST từ Facebook
   if (req.method === 'POST') {
     const body = req.body;
     if (!body || body.object !== 'page' || !Array.isArray(body.entry)) {
@@ -174,7 +179,8 @@ export default async function handler(req, res) {
         const now = new Date(Date.now() + 7 * 3600 * 1000);
         const timeText = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
 
-        webhookEventsMemory.unshift({
+        // Đẩy vào bộ nhớ đệm toàn cục để trang web đọc lập tức
+        globalMemory.unshift({
           id: `wh-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           receivedAt: timeText,
           fbPageId,
