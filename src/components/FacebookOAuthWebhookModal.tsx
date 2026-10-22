@@ -70,35 +70,17 @@ interface CandidateFbPage {
 
 const CANDIDATE_FB_PAGES: CandidateFbPage[] = [
   {
-    fbPageId: '108823410001',
-    name: 'In Ấn Nhanh',
-    specialty: 'Chuyên Danh thiếp, Decal dán kính, Tem nhãn, Tờ rơi',
+    fbPageId: '601076817027492',
+    name: 'Tiến Phát In Túi Giấy & Hộp Giấy Gia Lai',
+    specialty: 'Chuyên In Túi Giấy & Hộp Giấy',
     selected: true,
   },
   {
-    fbPageId: '108823410002',
-    name: 'Xưởng Bao Bì Giấy',
-    specialty: 'Chuyên Hộp giấy Ivory/Kraft/Duplex, Túi giấy thương hiệu',
+    fbPageId: '311392846216896',
+    name: 'In Thiệp Cưới Gia Lai',
+    specialty: 'Chuyên In Thiệp Cưới',
     selected: true,
-  },
-  {
-    fbPageId: '108823410003',
-    name: 'Tổng Kho Thùng Carton',
-    specialty: 'Chuyên Thùng carton 3-5 lớp, Hộp ship COD',
-    selected: true,
-  },
-  {
-    fbPageId: '108823410004',
-    name: 'Xưởng Gia Công Ép Kim & UV Tiến Phát',
-    specialty: 'Chuyên Gia công sau in, thúc nổi, bồi sóng carton',
-    selected: false,
-  },
-  {
-    fbPageId: '108823410005',
-    name: 'In Bao Bì Nhựa & Túi Зиp Tiến Phát',
-    specialty: 'Chuyên Túi màng ghép, túi zip đáy đứng thực phẩm',
-    selected: false,
-  },
+  }
 ];
 
 export const FacebookOAuthWebhookModal: React.FC<
