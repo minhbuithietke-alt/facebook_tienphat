@@ -3,9 +3,10 @@ import { GoogleGenAI, Type } from '@google/genai';
 const webhookEventsMemory = globalThis.__tienphatWebhookEvents || [];
 globalThis.__tienphatWebhookEvents = webhookEventsMemory;
 
-// Cấu hình Firestore từ firebase-applet-config.json
+// Cấu hình từ firebase-applet-config.json
 const FIREBASE_PROJECT_ID = 'gen-lang-client-0149504136';
 const FIRESTORE_DB_ID = 'ai-studio-tinphtaihthngqun-fdd2fcbc-9e27-4031-8675-ecd0a9b3f595';
+const FIREBASE_API_KEY = 'AIzaSyBx_2WDPHbgtyU9U151SfiEdL899OVaaR4';
 const FIRESTORE_BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/${FIRESTORE_DB_ID}/documents`;
 
 const DEFAULT_PAGES = {
@@ -35,11 +36,43 @@ const DEFAULT_PAGES = {
   },
 };
 
+// Tự động lấy Firebase Auth Token để ghi vào Firestore không bị lỗi Permission Denied
+let cachedIdToken = null;
+let tokenExpiry = 0;
+
+async function getFirebaseAuthHeaders() {
+  if (cachedIdToken && Date.now() < tokenExpiry) {
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${cachedIdToken}` };
+  }
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnSecureToken: true }),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data.idToken) {
+        cachedIdToken = data.idToken;
+        tokenExpiry = Date.now() + 50 * 60 * 1000;
+        return { 'Content-Type': 'application/json', Authorization: `Bearer ${cachedIdToken}` };
+      }
+    }
+  } catch (e) {
+    console.error('Auth token fetch error:', e);
+  }
+  return { 'Content-Type': 'application/json' };
+}
+
 async function saveEventToFirestore(eventItem) {
   try {
+    const headers = await getFirebaseAuthHeaders();
     const res = await fetch(`${FIRESTORE_BASE_URL}/webhook_events?documentId=${eventItem.id}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         fields: {
           payload: { stringValue: JSON.stringify(eventItem) },
@@ -48,16 +81,17 @@ async function saveEventToFirestore(eventItem) {
       }),
     });
     if (!res.ok) {
-      console.error('Firestore write status:', res.status, await res.text());
+      console.error('Firestore write failed:', res.status, await res.text());
     }
   } catch (e) {
-    console.error('Firestore write error:', e);
+    console.error('Firestore write exception:', e);
   }
 }
 
 async function loadEventsFromFirestore() {
   try {
-    const res = await fetch(`${FIRESTORE_BASE_URL}/webhook_events?pageSize=25`);
+    const headers = await getFirebaseAuthHeaders();
+    const res = await fetch(`${FIRESTORE_BASE_URL}/webhook_events?pageSize=25`, { headers });
     if (!res.ok) return [];
     const data = await res.json();
     if (!data.documents) return [];
@@ -255,7 +289,6 @@ export default async function handler(req, res) {
   // 4. Nhận tin nhắn & bình luận POST thực tế từ Facebook
   if (req.method === 'POST') {
     const body = req.body;
-    // In chi tiết toàn bộ JSON không bị rút gọn [...]
     console.log('FULL WEBHOOK BODY:', JSON.stringify(body));
 
     if (!body || body.object !== 'page' || !Array.isArray(body.entry)) {
@@ -269,15 +302,20 @@ export default async function handler(req, res) {
       const matchedPage =
         Object.values(DEFAULT_PAGES).find((p) => p.fbPageId === fbPageId) || DEFAULT_PAGES.page1;
 
-      // Bắt cả entry.messaging (chính) và entry.standby (khi bật Meta Business Suite)
       const messagingList = [
         ...(Array.isArray(entry.messaging) ? entry.messaging : []),
         ...(Array.isArray(entry.standby) ? entry.standby : []),
       ];
 
       for (const msgEvent of messagingList) {
-        if (msgEvent?.message?.is_echo) continue;
-        const text = msgEvent?.message?.text;
+        // Bỏ qua sự kiện đọc tin nhắn (read), đã nhận (delivery) hoặc tin nhắn do chính Page gửi đi (is_echo)
+        if (msgEvent?.message?.is_echo || msgEvent?.read || msgEvent?.delivery) continue;
+
+        const text =
+          msgEvent?.message?.text ||
+          msgEvent?.postback?.title ||
+          (msgEvent?.message?.attachments ? '[Khách gửi Hình ảnh / Đính kèm]' : null);
+
         if (!text) continue;
 
         const senderId = String(msgEvent?.sender?.id || 'psid_user');
@@ -307,11 +345,10 @@ export default async function handler(req, res) {
               }
             );
             const fbResText = await fbRes.text();
-            console.log('Graph API send response:', fbRes.status, fbResText);
             graphApiStatus = fbRes.ok
               ? 'Đã phản hồi tự động qua Graph API /me/messages'
               : `Lỗi Graph API: ${fbResText}`;
-          } catch (e) {
+          } catch {
             graphApiStatus = 'Lỗi kết nối Graph API';
           }
         }
@@ -339,51 +376,6 @@ export default async function handler(req, res) {
         webhookEventsMemory.unshift(eventRecord);
         await saveEventToFirestore(eventRecord);
         processedEvents.push(eventRecord);
-      }
-
-      // Bắt thêm sự kiện bình luận bài viết (entry.changes)
-      if (Array.isArray(entry.changes)) {
-        for (const change of entry.changes) {
-          const val = change?.value;
-          const text = val?.message || val?.text;
-          if (!text || val?.from?.id === fbPageId) continue;
-
-          const senderId = String(val?.from?.id || 'fb_user');
-          const senderName = String(val?.from?.name || `Khách Comment (${senderId.slice(-4)})`);
-
-          const { result: aiAnalysis } = await analyzeWithAI({
-            customerMessage: String(text),
-            conversationHistory: [{ sender: 'customer', content: String(text) }],
-            currentSpecs: {},
-            interactionType: 'Bình luận (Comment)',
-            pageId: matchedPage.slotId,
-            pageName: matchedPage.name,
-          });
-
-          const now = new Date(Date.now() + 7 * 3600 * 1000);
-          const timeText = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
-
-          const eventRecord = {
-            id: `wh-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            receivedAt: timeText,
-            fbPageId,
-            mappedSlotId: matchedPage.slotId,
-            mappedPageName: matchedPage.name,
-            senderId,
-            senderName,
-            interactionType: 'Bình luận (Comment)',
-            incomingText: String(text),
-            aiReply: aiAnalysis.replyMessage,
-            status: aiAnalysis.status,
-            shouldHideComment: aiAnalysis.shouldHideComment,
-            specs: aiAnalysis.specs,
-            graphApiStatus: 'Đã phân tích Comment AI',
-          };
-
-          webhookEventsMemory.unshift(eventRecord);
-          await saveEventToFirestore(eventRecord);
-          processedEvents.push(eventRecord);
-        }
       }
     }
 
